@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PulsoVía - Visor de vibraciones</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+  onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';document.head.appendChild(s);"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
+  onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';document.head.appendChild(s);"></script>
+<style>
+  :root{
+    --bg:#000000; --panel:#141414; --panel2:#2a2a2a; --text:#e5e5e5;
+    --muted:#a3a3a3; --accent:#f97316; --accent2:#ea580c; --red:#ef4444;
+    --green:#22c55e; --orange:#f59e0b; --border:#333333;
+    --band-h:120px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+       background:var(--bg);color:var(--text);padding:20px;line-height:1.5}
+  h1{font-size:1.4rem;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:.85rem;margin-bottom:6px}
+  .session-title{font-size:.95rem;margin-bottom:16px;color:var(--text)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+         padding:16px;margin-bottom:16px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+         border-radius:8px;padding:8px 14px;cursor:pointer;font-size:.9rem;transition:.15s}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600}
+  button.primary:hover{background:var(--accent2)}
+  input[type=number],input[type=text]{background:var(--panel2);color:var(--text);
+         border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:.9rem;width:90px}
+  label{font-size:.9rem;color:var(--muted)}
+  .ch-btn{min-width:70px;font-weight:600}
+  .ch-btn.on{background:var(--accent);border-color:var(--accent);color:#000}
+  .drop{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;
+        cursor:pointer;color:var(--muted);transition:.15s;}
+  .drop:hover,.drop.over{border-color:var(--accent);color:var(--text)}
+  /* Control nativo visible: se pulsa directamente en el botón de Android/Chrome. */
+  .drop input[type=file]{display:block;position:static;opacity:1;width:100%;height:auto;
+        margin:12px 0 0;padding:8px;color:var(--text);font-size:16px;cursor:pointer;
+        z-index:auto;border:1px solid var(--border);border-radius:8px;background:var(--panel2)}
+  .status{font-size:.85rem;color:var(--muted)}
+  .status.err{color:var(--red)}
+  .alarm-off{color:var(--muted)}
+  .alarm-on{color:var(--red);font-weight:700}
+  .speed-btn.on{background:var(--accent);border-color:var(--accent);color:#000}
+  .play-btn{min-width:90px;font-weight:700}
+  .play-btn.playing{background:var(--red);border-color:var(--red);color:#fff}
+  .hint{font-size:.8rem;color:var(--muted);margin-top:8px}
+  #seek{flex:1;min-width:220px;accent-color:var(--accent)}
+  .now{font-variant-numeric:tabular-nums;color:var(--text);font-size:.9rem}
+
+  #groupPanel{
+    background:#0a0a0a;
+    border:1px solid #333;
+    border-radius:12px;
+    padding:10px 12px;
+    margin-bottom:14px;
+    box-shadow:0 2px 6px rgba(0,0,0,.5);
+  }
+  #groupPanel.event-focused{
+    outline:2px solid var(--red);
+    outline-offset:2px;
+  }
+
+  .thr-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  .thr-item{display:flex;align-items:center;gap:4px;background:var(--panel2);
+            border:1px solid var(--border);border-radius:8px;padding:3px 6px;font-size:.78rem}
+  .thr-item input{width:60px;padding:2px 5px;font-size:.78rem}
+  .thr-item button{padding:2px 6px;font-size:.72rem}
+  .thr-item .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:2px}
+
+  #bandsContainer{
+    display:flex; flex-direction:column; gap:2px;
+    border:1px solid #444;
+    border-radius:12px;
+    padding:6px;
+    background:#000;
+  }
+
+  .band{
+    position:relative;
+    background:transparent;
+    border:0; padding:0; margin:0;
+  }
+  .band:not(:last-child){ border-bottom:1px solid #222; }
+
+  /* Banda afectada: resaltado muy visible en oscuro */
+  .band-alarm{
+    background:rgba(239,68,68,.30);
+    box-shadow:inset 6px 0 0 #ef4444, 0 0 0 2px rgba(239,68,68,.55);
+    border-radius:6px;
+  }
+  .band-alarm .band-head{ color:#fecaca; font-weight:800; }
+
+  .band .band-head{
+    position:absolute; top:0; left:6px;
+    font-size:.72rem; color:var(--muted);
+    pointer-events:none; z-index:2;
+    background:rgba(0,0,0,.75);
+    padding:0 4px; border-radius:4px; font-weight:600;
+  }
+  .band .chart-wrap{ position:relative; height:var(--band-h); }
+
+  .ev-wrap{max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+  table.ev{width:100%;border-collapse:collapse;font-size:.85rem;font-variant-numeric:tabular-nums}
+  table.ev th,table.ev td{padding:5px 10px;text-align:right;border-bottom:1px solid var(--border)}
+  table.ev th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight:600}
+  table.ev th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+  table.ev th.sortable:hover{color:var(--text);background:#333}
+  table.ev th .sort-ind{display:inline-block;margin-left:4px;font-size:.75rem;opacity:.9}
+  table.ev tr.clk{cursor:pointer}
+  table.ev tr.clk:hover td{background:#222}
+   table.ev tr.clk{cursor:pointer}
+  table.ev tr.clk:hover td{background:#222}
+
+  /* Fila seleccionada: MUY visible */
+  table.ev tr.selected td{
+    background:#7f1d1d !important;
+    color:#ffffff;
+    font-weight:800;
+    border-top:3px solid #ef4444;
+    border-bottom:3px solid #ef4444;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+  }
+  table.ev tr.selected td:first-child{
+    box-shadow: inset 6px 0 0 #ef4444;
+  }
+  table.ev tr.selected{
+    outline:2px solid #ef4444;
+    outline-offset:-2px;
+  }
+  table.ev tr.selected:hover td{
+    background:#991b1b !important; /* sigue rojo al pasar el ratón */
+  }
+  .ev-dot{display:inline-block;width:10px;height:3px;background:var(--orange);
+          margin-right:4px;vertical-align:middle}
+</style>
+</head>
+<body>
+  <h1>PulsoVía - Visor de vibraciones (web)</h1>
+  <div class="sub">Acelerómetro + giroscopio · selección múltiple de canales · alarma sonora</div>
+  <div class="session-title" id="sessionTitle"></div>
+
+  <div class="panel">
+    <div class="row">
+      <button class="primary" id="btnDemo">Cargar datos demo (sin fichero)</button>
+      <button id="btnGenDemo">Generar ficheros demo (CSV con incidencias)</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label>Acelerómetro CSV <input type="file" id="fileAcc" accept=".csv"></label>
+      <label>Giroscopio CSV <input type="file" id="fileGiro" accept=".csv"></label>
+      <label>Eventos CSV (opcional) <input type="file" id="fileEvent" accept=".csv"></label>
+      <label>GNSS CSV (opcional) <input type="file" id="fileGnss" accept=".csv"></label>
+    </div>
+    <div class="status" id="dataStatus" style="margin-top:10px">Sin datos cargados. Formato: acelerometro.csv → t_ns,x_ms2,y_ms2,z_ms2 ; giroscopio.csv → t_ns,x_rads,y_rads,z_rads</div>
+    <div class="status" id="metaInfo" style="margin-top:4px"></div>
+  </div>
+
+  <div class="panel">
+    <div style="font-weight:600;margin-bottom:8px">Opción A · Arrastra aquí el ZIP de la sesión</div>
+    <div class="drop" id="dropZip">
+      o haz clic para elegirlo. Contiene acelerometro.csv y giroscopio.csv (eventos.csv, gnss.csv y sesion.json opcionales; pueden ir dentro de una carpeta).
+      <input type="file" id="fileZip" accept=".zip,.csv,.json" multiple>
+    </div>
+    <div style="font-weight:600;margin:12px 0 8px">Opción B · Selecciona varios ficheros a la vez</div>
+    <div class="drop" id="dropMulti">
+      CSV, JSON o ZIP. Se reparten automáticamente por nombre (aceler*, giro*, event*, gnss*, sesion.json).
+      <input type="file" id="fileMulti" accept=".csv,.zip,.json" multiple>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div style="font-weight:600;margin-bottom:8px">Canales del gráfico <span class="hint">(clic para seleccionar / deseleccionar)</span></div>
+    <div class="row" id="channelButtons">
+      <button class="ch-btn" data-ch="accX">Acc X</button>
+      <button class="ch-btn" data-ch="accY">Acc Y</button>
+      <button class="ch-btn" data-ch="accZ">Acc Z</button>
+      <button class="ch-btn" data-ch="giroX">Giro X</button>
+      <button class="ch-btn" data-ch="giroY">Giro Y</button>
+      <button class="ch-btn" data-ch="giroZ">Giro Z</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label><input type="checkbox" id="chkGravity" checked> Quitar gravedad/media en Acc (recomendado)</label>
+      <label><input type="checkbox" id="chkEvLines" checked> Mostrar eventos del fichero (líneas de trazos)</label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label>Ventana visible (s): <input type="number" id="inpWindow" value="10" min="1" step="1"></label>
+      <span style="color:var(--muted)">Velocidad:</span>
+      <button class="speed-btn" data-speed="1">1x</button>
+      <button class="speed-btn" data-speed="4">4x</button>
+      <button class="speed-btn" data-speed="10">10x</button>
+      <button class="speed-btn" data-speed="50">50x</button>
+      <button class="speed-btn" data-speed="200">200x</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="play-btn" id="btnPlay">▶ Play</button>
+      <button id="btnStop">■ Stop</button>
+      <label><input type="checkbox" id="chkSound"> Sonido alarma</label>
+      <span id="alarmStatus" class="alarm-off">SIN ALARMA</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <input type="range" id="seek" min="0" max="0" step="0.1" value="0">
+      <span class="now" id="nowInfo">—</span>
+    </div>
+    <div class="hint">Línea roja = umbral ±. Punto rojo = superación del umbral actual (con 1 s de inhibición y sin sucesos en los primeros 5 s). Las líneas naranjas son los eventos originales del fichero eventos.csv.</div>
+  </div>
+
+  <div id="chartsContainer">
+    <div id="groupPanel" style="display:none">
+      <div class="thr-row" id="thrRow"></div>
+      <div id="bandsContainer"></div>
+      <div class="hint">Todas las bandas comparten el eje de tiempo (X). El eje X solo se dibuja en la banda inferior para ahorrar espacio.</div>
+    </div>
+  </div>
+
+  <div class="panel" id="eventsPanel" style="display:none">
+    <div style="font-weight:600;margin-bottom:8px"><span class="ev-dot"></span>Superaciones de los umbrales actuales <span class="hint" id="evCount"></span></div>
+    <div class="ev-wrap">
+      <table class="ev">
+        <thead><tr>
+          <th class="sortable" data-sort="t">Tiempo<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="hora">Hora<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="label">Canal<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="v">Valor<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="threshold">Umbral<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="vel">Velocidad (km/h)<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="lat">Lat<span class="sort-ind"></span></th>
+          <th class="sortable" data-sort="lon">Lon<span class="sort-ind"></span></th>
+        </tr></thead>
+        <tbody id="evBody"></tbody>
+      </table>
+    </div>
+    <div class="hint">La tabla incluye las superaciones calculadas en los canales visibles. Clic en una fila para saltar a ese momento. Clic en una cabecera para ordenar (asc/desc alternado). Las líneas naranjas siguen representando los eventos originales de eventos.csv.</div>
+  </div>
+
+<script>
+/* ======================= FUNCIONES PURAS ======================= */
+// BEGIN-PURE
+function parseCSV(text){
+  const lines = text.split("\n");
+  const header = lines[0].replace(/\r|\uFEFF/g,"").split(",").map(h=>h.trim());
+  const H = header.length;
+  const cap = Math.max(lines.length-1, 0);
+  const c = {}, s = {};
+  const cols = header.map(h=>{ c[h] = new Float64Array(cap); return c[h]; });
+  let k = 0;
+  for(let i=1;i<lines.length;i++){
+    const line = lines[i];
+    if(line.length < 2) continue;
+    const parts = line.split(",");
+    if(parts.length < H) continue;
+    for(let j=0;j<H;j++){
+      const p = parts[j];
+      if(p === "" || p === "\r"){ cols[j][k] = NaN; continue; }
+      const v = +p;
+      if(v !== v){
+        cols[j][k] = NaN;
+        const t = p.trim();
+        if(t){ (s[header[j]] || (s[header[j]] = []))[k] = t; }
+      } else cols[j][k] = v;
+    }
+    k++;
+  }
+  for(const h of header) c[h] = c[h].subarray(0,k);
+  return {header, n:k, c, s};
+}
+function lowerBound(arr, x){
+  let lo = 0, hi = arr.length;
+  while(lo < hi){ const mid = (lo+hi)>>1; if(arr[mid] < x) lo = mid+1; else hi = mid; }
+  return lo;
+}
+function sliceDecimated(t, v, ta, tb, maxBuckets){
+  maxBuckets = maxBuckets || 700;
+  const i0 = lowerBound(t, ta), i1 = lowerBound(t, tb);
+  const n = i1 - i0, out = [];
+  if(n <= 0) return out;
+  if(n <= maxBuckets*2){
+    for(let i=i0;i<i1;i++) out.push({x:t[i], y:v[i]});
+    return out;
+  }
+  const step = n / maxBuckets;
+  for(let b=0;b<maxBuckets;b++){
+    const s = i0 + Math.floor(b*step);
+    const e = Math.min(i1, i0 + Math.floor((b+1)*step));
+    if(e <= s) continue;
+    let imin = s, imax = s;
+    for(let i=s+1;i<e;i++){ if(v[i] < v[imin]) imin = i; if(v[i] > v[imax]) imax = i; }
+    if(imin === imax) out.push({x:t[imin], y:v[imin]});
+    else if(imin < imax){ out.push({x:t[imin], y:v[imin]}); out.push({x:t[imax], y:v[imax]}); }
+    else { out.push({x:t[imax], y:v[imax]}); out.push({x:t[imin], y:v[imin]}); }
+  }
+  return out;
+}
+// END-PURE
+
+/* ======================= APLICACIÓN ======================= */
+function initApp(){
+  "use strict";
+
+  const mk = (label,unit)=>({label, unit, selected:false, threshold:null, data:null, exceedances:[]});
+  const state = {
+    accel: null, gyro: null, events: [], gnss: null, meta: null, receipt: null,
+    t0: 0, utc0: null,
+    channels: {
+      accX:  mk("Acc X","m/s²"),  accY:  mk("Acc Y","m/s²"),  accZ:  mk("Acc Z","m/s²"),
+      giroX: mk("Giro X","rad/s"), giroY: mk("Giro Y","rad/s"), giroZ: mk("Giro Z","rad/s"),
+    },
+    charts: {},
+    currentTime: 0, lastCheckedTime: 0,
+    playing: false, speed: 1, window: 10,
+    removeGravity: true, showEvLines: true,
+    soundOn: false, audioCtx: null, maxTime: 0,
+    selectedEvent: null, viewStart: null,
+    sortKey: null, sortDir: 1,
+  };
+  const raw = {acc:null, gyro:null, ev:null, gnss:null, meta:null, receipt:null};
+
+  const $ = id => document.getElementById(id);
+  const bandsContainer = $("bandsContainer");
+  const groupPanel = $("groupPanel");
+  const tick = ()=>new Promise(r=>setTimeout(r,0));
+
+  const CH_ORDER = ["accX","accY","accZ","giroX","giroY","giroZ"];
+  const CH_COLORS = { accX:"#22c55e", accY:"#3b82f6", accZ:"#eab308",
+                      giroX:"#a855f7", giroY:"#06b6d4", giroZ:"#f97316" };
+
+  function fmtTime(s){
+    const m = Math.floor(s/60), sec = s - m*60;
+    return m + ":" + sec.toFixed(1).padStart(4,"0");
+  }
+  function setStatus(msg, isErr){
+    const el = $("dataStatus");
+    el.textContent = msg;
+    el.className = "status" + (isErr ? " err" : "");
+  }
+  function selectedKeys(){ return CH_ORDER.filter(k => state.channels[k].selected); }
+
+  function refreshBandHeights(){
+    const n = Math.max(selectedKeys().length, 1);
+    const h = Math.max(70, Math.round(360 / n));
+    document.documentElement.style.setProperty("--band-h", h + "px");
+  }
+
+  function clearAlarmHighlight(){
+    document.querySelectorAll(".band").forEach(b => b.classList.remove("band-alarm"));
+  }
+
+  // ---------- Plugin: sombreado de zona de evento + líneas verticales ----------
+    const eventLines = {
+    id:"eventLines",
+    beforeDatasetsDraw(chart){
+      const x = chart.scales.x, a = chart.chartArea, ctx = chart.ctx;
+
+      // 1) Sombreado de la ventana del evento seleccionado (debajo de todo)
+      const sel = state.selectedEvent;
+      if(sel && sel.t >= x.min && sel.t <= x.max){
+        const half = Math.max(0.18, Math.min(0.5, state.window*0.035));
+        const p1 = x.getPixelForValue(Math.max(x.min, sel.t-half));
+        const p2 = x.getPixelForValue(Math.min(x.max, sel.t+half));
+        const ancho = Math.max(4, p2-p1);
+
+        ctx.save();
+        ctx.fillStyle = "rgba(239,68,68,.55)";
+        ctx.fillRect(p1, a.top, ancho, a.bottom-a.top);
+
+        ctx.fillStyle = "rgba(239,68,68,.9)";
+        ctx.fillRect(p1, a.top, 3, a.bottom-a.top);
+        ctx.fillRect(p1+ancho-3, a.top, 3, a.bottom-a.top);
+        ctx.fillRect(p1, a.top, ancho, 2);
+        ctx.fillRect(p1, a.bottom-2, ancho, 2);
+
+        // 2) Línea vertical roja del evento seleccionado (también debajo de los puntos)
+        const px = x.getPixelForValue(sel.t);
+        ctx.setLineDash([]);
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+        ctx.restore();
+      }
+
+      // 3) Líneas naranjas de eventos del fichero (debajo de los puntos también)
+      if(state.showEvLines && state.events.length){
+        ctx.save();
+        ctx.strokeStyle = "#f59e0b"; ctx.lineWidth = 1.2; ctx.setLineDash([3,3]);
+        for(const e of state.events){
+          if(e.t < x.min || e.t > x.max) continue;
+          const px = x.getPixelForValue(e.t);
+          ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    },
+    afterDatasetsDraw(chart){
+      // Sin dibujo aquí: todo se pinta antes de los datasets para que
+      // los puntos blancos de superación queden siempre por encima.
+    }
+  };
+
+  // ---------- Ingesta ----------
+  function classify(name){
+    const n = name.toLowerCase();
+    if(n.endsWith(".json")) return "json";
+    if(!n.endsWith(".csv")) return null;
+    if(n.startsWith("aceler") || n.startsWith("acc")) return "acc";
+    if(n.startsWith("giro") || n.startsWith("gyro")) return "giro";
+    if(n.startsWith("event")) return "ev";
+    if(n.startsWith("gnss") || n.startsWith("gps")) return "gnss";
+    return null;
+  }
+  function need(P, name, cols){
+    for(const c of cols) if(!P.c[c]) throw new Error(`${name}: falta la columna "${c}" (columnas encontradas: ${P.header.join(", ")})`);
+  }
+  function ingestText(name, text){
+    const kind = classify(name);
+    if(!kind) return;
+    if(kind === "json"){
+      let o; try{ o = JSON.parse(text); }catch(e){ return; }
+      if(o && (o.acelerometro || o.inicio_utc_ms)) raw.meta = o;
+      else if(o && (o.alias !== undefined || o.sha256)) raw.receipt = o;
+      return;
+    }
+    const P = parseCSV(text);
+    if(kind === "acc"){
+      need(P, name, ["t_ns","x_ms2","y_ms2","z_ms2"]);
+      raw.acc = {tns:P.c.t_ns, x:new Float32Array(P.c.x_ms2), y:new Float32Array(P.c.y_ms2), z:new Float32Array(P.c.z_ms2)};
+    } else if(kind === "giro"){
+      need(P, name, ["t_ns","x_rads","y_rads","z_rads"]);
+      raw.gyro = {tns:P.c.t_ns, x:new Float32Array(P.c.x_rads), y:new Float32Array(P.c.y_rads), z:new Float32Array(P.c.z_rads)};
+    } else if(kind === "ev"){
+      raw.ev = P;
+    } else if(kind === "gnss"){
+      raw.gnss = P;
+    }
+  }
+  function readFile(file){
+    return new Promise((res,rej)=>{
+      const r = new FileReader();
+      r.onload = ()=>res(r.result);
+      r.onerror = ()=>rej(r.error);
+      r.readAsText(file);
+    });
+  }
+  async function loadFiles(files, reset){
+    const list = Array.from(files);
+    if(!list.length) return;
+    stopPlayback();
+    try{
+      if(reset){ raw.acc = raw.gyro = raw.ev = raw.gnss = raw.meta = raw.receipt = null; }
+      for(const f of list){
+        if(f.name.toLowerCase().endsWith(".zip")){
+          setStatus(`Descomprimiendo ${f.name}…`); await tick();
+          const zip = await JSZip.loadAsync(f);
+          for(const path of Object.keys(zip.files)){
+            const entry = zip.files[path];
+            if(entry.dir || path.startsWith("__MACOSX")) continue;
+            const base = path.split("/").pop();
+            if(!classify(base)) continue;
+            setStatus(`Leyendo ${base}…`); await tick();
+            ingestText(base, await entry.async("string"));
+          }
+        } else {
+          setStatus(`Leyendo ${f.name}…`); await tick();
+          ingestText(f.name, await readFile(f));
+        }
+      }
+      setStatus("Procesando…"); await tick();
+      finalize();
+      if(!state.accel && !state.gyro) setStatus("No se encontró acelerometro.csv ni giroscopio.csv en lo seleccionado.", true);
+    }catch(err){
+      console.error(err);
+      setStatus("Error: " + err.message, true);
+    }
+  }
+
+  // ---------- Estado ----------
+  function finalize(){
+    const firsts = [];
+    if(raw.acc && raw.acc.tns.length)   firsts.push(raw.acc.tns[0]);
+    if(raw.gyro && raw.gyro.tns.length) firsts.push(raw.gyro.tns[0]);
+    state.meta = raw.meta; state.receipt = raw.receipt;
+    if(!firsts.length){
+      state.accel = state.gyro = null; state.events = []; state.gnss = null;
+      buildChannels(); updateStatus(); renderEventList(); updateNow();
+      return;
+    }
+    const t0 = Math.min(...firsts);
+    state.t0 = t0;
+    const conv = tns => { const t = new Float64Array(tns.length); for(let i=0;i<t.length;i++) t[i] = (tns[i]-t0)/1e9; return t; };
+    state.accel = raw.acc  ? {t:conv(raw.acc.tns),  x:raw.acc.x,  y:raw.acc.y,  z:raw.acc.z}  : null;
+    state.gyro  = raw.gyro ? {t:conv(raw.gyro.tns), x:raw.gyro.x, y:raw.gyro.y, z:raw.gyro.z} : null;
+
+    state.events = [];
+    if(raw.ev && raw.ev.c.t_ns){
+      const c = raw.ev.c, s = raw.ev.s;
+      for(let i=0;i<raw.ev.n;i++){
+        state.events.push({
+          t:(c.t_ns[i]-t0)/1e9,
+          valor: c.valor_ms2 ? c.valor_ms2[i] : NaN,
+          umbral: c.umbral_ms2 ? c.umbral_ms2[i] : NaN,
+          lat: c.lat ? c.lat[i] : NaN, lon: c.lon ? c.lon[i] : NaN,
+          vel: c.velocidad_kmh ? c.velocidad_kmh[i] : NaN,
+          utc: c.utc_ms ? c.utc_ms[i] : NaN,
+          canal: (s.canal && s.canal[i]) || (s.channel && s.channel[i]) || (s.tipo && s.tipo[i]) || undefined,
+        });
+      }
+    }
+    state.gnss = null;
+    if(raw.gnss && raw.gnss.c.t_ns && raw.gnss.n){
+      const c = raw.gnss.c;
+      const t = new Float64Array(raw.gnss.n);
+      for(let i=0;i<t.length;i++) t[i] = (c.t_ns[i]-t0)/1e9;
+      state.gnss = {t, vms:c.velocidad_ms || null, utc:c.utc_ms || null,
+                     lat:c.lat || null, lon:c.lon || null};
+    }
+
+    state.utc0 = null;
+    const m = state.meta;
+    if(m && m.primera_muestra_utc_ms != null && m.primera_muestra_t_ns != null)
+      state.utc0 = m.primera_muestra_utc_ms - (m.primera_muestra_t_ns - t0)/1e6;
+    else if(state.events.length && isFinite(state.events[0].utc))
+      state.utc0 = state.events[0].utc - state.events[0].t*1000;
+    else if(state.gnss && state.gnss.utc)
+      state.utc0 = state.gnss.utc[0] - state.gnss.t[0]*1000;
+
+    buildChannels();
+    state.currentTime = Math.min(state.window, state.maxTime);
+    state.lastCheckedTime = state.currentTime;
+    $("seek").max = state.maxTime.toFixed(1);
+    applyDefaultThresholds();
+    if(Object.values(state.channels).every(c=>!c.selected)) toggleChannel("accZ");
+    updateStatus(); renderEventList(); updateAllCharts(); updateNow();
+  }
+
+  function removeMean(arr){
+    let s = 0; for(let i=0;i<arr.length;i++) s += arr[i];
+    const m = s/arr.length, out = new Float32Array(arr.length);
+    for(let i=0;i<arr.length;i++) out[i] = arr[i]-m;
+    return out;
+  }
+  function buildChannels(){
+    const A = state.accel, G = state.gyro, ch = state.channels, g = state.removeGravity;
+    ch.accX.data  = A ? {t:A.t, v:g ? removeMean(A.x) : A.x} : null;
+    ch.accY.data  = A ? {t:A.t, v:g ? removeMean(A.y) : A.y} : null;
+    ch.accZ.data  = A ? {t:A.t, v:g ? removeMean(A.z) : A.z} : null;
+    ch.giroX.data = G ? {t:G.t, v:G.x} : null;
+    ch.giroY.data = G ? {t:G.t, v:G.y} : null;
+    ch.giroZ.data = G ? {t:G.t, v:G.z} : null;
+    state.maxTime = Math.max(A && A.t.length ? A.t[A.t.length-1] : 0, G && G.t.length ? G.t[G.t.length-1] : 0);
+    Object.keys(ch).forEach(computeExceedances);
+  }
+
+  function updateStatus(){
+    const A = state.accel, G = state.gyro;
+    if(!A && !G){
+      setStatus("Sin datos cargados. Formato: acelerometro.csv → t_ns,x_ms2,y_ms2,z_ms2 ; giroscopio.csv → t_ns,x_rads,y_rads,z_rads");
+      $("metaInfo").textContent = ""; $("sessionTitle").textContent = "";
+      return;
+    }
+    const nA = A ? A.t.length : 0, nG = G ? G.t.length : 0;
+    const hz = A && state.maxTime > 0 ? Math.round(nA/state.maxTime) : 0;
+    setStatus(`Datos cargados: ${nA.toLocaleString("es-ES")} muestras acc, ${nG.toLocaleString("es-ES")} muestras giro` +
+              `${hz ? " (~"+hz+" Hz)" : ""}, ${state.events.length} eventos · duración ${fmtTime(state.maxTime)} (${state.maxTime.toFixed(1)} s)`);
+    const m = state.meta, r = state.receipt;
+    const parts = [];
+    if(m){
+      if(m.fabricante || m.modelo) parts.push(`${m.fabricante||""} ${m.modelo||""}`.trim());
+      if(m.android) parts.push("Android " + m.android);
+      if(m.acelerometro && m.acelerometro.nombre) parts.push(m.acelerometro.nombre);
+      if(m.inicio_utc) parts.push("inicio " + m.inicio_utc);
+      if(m.notas) parts.push("notas: " + m.notas);
+    }
+    $("metaInfo").textContent = parts.join(" · ");
+    const title = [];
+    if(r && r.alias) title.push(r.alias);
+    if(r && r.sesion) title.push("sesión " + r.sesion);
+    $("sessionTitle").textContent = title.join(" · ");
+  }
+
+  // ---------- Umbrales ----------
+  function defaultThreshold(){
+    if(state.meta && state.meta.umbral_inicial_ms2 > 0) return state.meta.umbral_inicial_ms2;
+    for(const e of state.events) if(e.umbral > 0) return e.umbral;
+    return null;
+  }
+  function applyDefaultThresholds(){
+    const d = defaultThreshold();
+    if(d == null) return;
+    for(const key of ["accX","accY","accZ"]){
+      const ch = state.channels[key];
+      if(ch.selected && ch.threshold == null){ ch.threshold = d; computeExceedances(key); }
+    }
+  }
+  function setThreshold(key, v){
+    const ch = state.channels[key];
+    ch.threshold = v;
+    const inp = document.getElementById("thr-"+key);
+    if(inp) inp.value = v == null ? "" : v;
+    computeExceedances(key);
+    updateAllCharts();
+    renderEventList();
+  }
+  function computeExceedances(key){
+    const ch = state.channels[key];
+    ch.exceedances = [];
+    if(!ch.data || ch.threshold == null) return;
+    const {t, v} = ch.data, thr = ch.threshold;
+    let last = -Infinity;
+    for(let i=0;i<v.length;i++){
+      if((v[i] > thr || v[i] < -thr) && t[i] > 5 && t[i] - last > 1){
+        last = t[i];
+        ch.exceedances.push({t:t[i], v:v[i]});
+      }
+    }
+  }
+
+  // ---------- Demo ----------
+  function generateDemo(){
+    const dur = 60, rate = 100, n = dur*rate, dt = 1/rate, base = 354000000000000;
+    const spikes = [[10,10.5,8],[25,25.3,12],[40,40.4,10]];
+    const mkA = ()=>({tns:new Float64Array(n), x:new Float32Array(n), y:new Float32Array(n), z:new Float32Array(n)});
+    const acc = mkA(), gyro = mkA();
+    for(let i=0;i<n;i++){
+      const t = i*dt;
+      let spike = 0;
+      for(const [a,b,amp] of spikes) if(t>=a && t<=b) spike = amp;
+      acc.tns[i] = gyro.tns[i] = base + Math.round(t*1e9);
+      acc.x[i] = Math.sin(2*Math.PI*2*t)*0.5 + (Math.random()-0.5)*0.2;
+      acc.y[i] = Math.cos(2*Math.PI*1.5*t)*0.3 + (Math.random()-0.5)*0.2;
+      acc.z[i] = 9.81 + spike + Math.sin(2*Math.PI*0.5*t)*0.2 + (Math.random()-0.5)*0.2;
+      gyro.x[i] = Math.sin(2*Math.PI*3*t)*0.5;
+      gyro.y[i] = Math.cos(2*Math.PI*2*t)*0.4;
+      gyro.z[i] = (Math.random()-0.5)*0.1;
+    }
+    const ev = {header:["t_ns","valor_ms2","umbral_ms2"], n:spikes.length, s:{}, c:{
+      t_ns:Float64Array.from(spikes, s=>base + Math.round(s[0]*1e9)),
+      valor_ms2:Float64Array.from(spikes, s=>s[2]),
+      umbral_ms2:Float64Array.from(spikes, ()=>3),
+    }};
+    return {acc, gyro, ev};
+  }
+  function download(name, text){
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text],{type:"text/csv"}));
+    a.download = name; a.click(); URL.revokeObjectURL(a.href);
+  }
+  function generateDemoFiles(){
+    const d = generateDemo();
+    const rows = (o)=>{ const out = new Array(o.tns.length); for(let i=0;i<out.length;i++) out[i] = [o.tns[i], o.x[i].toFixed(5), o.y[i].toFixed(5), o.z[i].toFixed(5)].join(","); return out.join("\n"); };
+    download("acelerometro.csv", "t_ns,x_ms2,y_ms2,z_ms2\n" + rows(d.acc));
+    download("giroscopio.csv",   "t_ns,x_rads,y_rads,z_rads\n" + rows(d.gyro));
+    let ev = "t_ns,utc_ms,valor_ms2,umbral_ms2,lat,lon,velocidad_kmh,edad_gnss_s\n";
+    for(let i=0;i<d.ev.n;i++) ev += [d.ev.c.t_ns[i], "", d.ev.c.valor_ms2[i], 3, "", "", "", ""].join(",") + "\n";
+    download("eventos.csv", ev);
+  }
+
+  // ---------- Canales ----------
+  function toggleChannel(key){
+    const ch = state.channels[key];
+    ch.selected = !ch.selected;
+    document.querySelector(`.ch-btn[data-ch="${key}"]`).classList.toggle("on", ch.selected);
+
+    if(ch.selected && ch.threshold == null && key.startsWith("acc")){
+      const d = defaultThreshold();
+      if(d != null){ ch.threshold = d; computeExceedances(key); }
+    }
+    if(!ch.selected && state.selectedEvent && state.selectedEvent.key === key){
+      state.selectedEvent = null; state.viewStart = null;
+      groupPanel.classList.remove("event-focused");
+      clearAlarmHighlight();
+    }
+
+    if(ch.selected) createBand(key);
+    else removeBand(key);
+    refreshXAxisVisibility();
+    refreshBandHeights();
+
+    renderThresholdRow();
+    renderEventList();
+    updateAllCharts();
+  }
+
+  // ---------- Bandas ----------
+  function isLastBand(key){
+    const sel = selectedKeys();
+    return sel.length && sel[sel.length-1] === key;
+  }
+  function refreshXAxisVisibility(){
+    for(const key of selectedKeys()){
+      const chart = state.charts[key];
+      if(!chart) continue;
+      chart.options.scales.x.display = isLastBand(key);
+      chart.update("none");
+    }
+  }
+
+  function createBand(key){
+    if(state.charts[key]) return;
+    const ch = state.channels[key];
+    const band = document.createElement("div");
+    band.className = "band";
+    band.id = "band-"+key;
+    band.innerHTML = `
+      <div class="band-head">${ch.label}</div>
+      <div class="chart-wrap"><canvas id="cv-${key}"></canvas></div>`;
+
+    const next = CH_ORDER.slice(CH_ORDER.indexOf(key)+1)
+      .map(k=>document.getElementById("band-"+k)).find(Boolean);
+    bandsContainer.insertBefore(band, next || null);
+    groupPanel.style.display = "";
+
+    const c = CH_COLORS[key] || "#22c55e";
+    const chart = new Chart(document.getElementById("cv-"+key).getContext("2d"), {
+      type:"line",
+      data:{ datasets:[
+        {label:ch.label, data:[], borderColor:c, backgroundColor:c+"1a",
+         borderWidth:1.5, pointRadius:0, tension:0, fill:false, order:3},
+        {label:"+umbral", data:[], borderColor:"#fdba74", borderWidth:1.5,
+         borderDash:[5,4], pointRadius:0, order:2},
+        {label:"-umbral", data:[], borderColor:"#fdba74", borderWidth:1.5,
+         borderDash:[5,4], pointRadius:0, order:2},
+        {label:"superación", data:[], type:"scatter",
+         pointBackgroundColor:"#ffffff",
+         pointBorderColor:"#ef4444",
+         pointBorderWidth:2,
+         pointRadius:6,
+         pointHoverRadius:8,
+         pointStyle:"circle", showLine:false, order:0},
+      ]},
+      options:{
+        parsing:false, normalized:true, responsive:true, maintainAspectRatio:false,
+        animation:false,
+        interaction:{mode:"nearest", intersect:false},
+        plugins:{legend:{display:false}},
+        layout:{padding:{left:2,right:6,top:10,bottom:0}},
+        scales:{
+          x:{type:"linear", display:false,
+             title:{display:false},
+             ticks:{color:"#a3a3a3", font:{size:9}, maxTicksLimit:10},
+             grid:{color:"#333333"}},
+          y:{title:{display:false},
+             ticks:{color:"#a3a3a3", font:{size:9}, maxTicksLimit:3},
+             grid:{color:"#333333"}}
+        }
+      },
+      plugins:[eventLines]
+    });
+    state.charts[key] = chart;
+    applyBandWindow(key);
+    refreshXAxisVisibility();
+  }
+
+  function removeBand(key){
+    if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; }
+    const band = document.getElementById("band-"+key);
+    if(band) band.remove();
+    if(!selectedKeys().length) groupPanel.style.display = "none";
+  }
+
+  function currentWindow(){
+    let t0, t1;
+    if(state.viewStart !== null && Number.isFinite(state.viewStart)){
+      t0 = state.viewStart;
+      t1 = Math.min(state.maxTime, t0 + state.window);
+    } else {
+      t1 = state.currentTime;
+      t0 = Math.max(0, t1 - state.window);
+    }
+    return {t0, t1};
+  }
+  function applyBandWindow(key){
+    const chart = state.charts[key];
+    if(!chart) return;
+    const {t0, t1} = currentWindow();
+    chart.options.scales.x.min = t0;
+    chart.options.scales.x.max = t1;
+  }
+  function updateBand(key){
+    const chart = state.charts[key], ch = state.channels[key];
+    if(!chart) return;
+    const {t0, t1} = currentWindow();
+    const ds = chart.data.datasets;
+
+    ds[0].data = ch.data ? sliceDecimated(ch.data.t, ch.data.v, t0, t1) : [];
+
+    const thr = ch.threshold;
+    if(thr != null){
+      ds[1].data = [{x:t0,y:thr},{x:t1,y:thr}];
+      ds[2].data = [{x:t0,y:-thr},{x:t1,y:-thr}];
+      chart.options.scales.y.suggestedMin = -thr*1.25;
+      chart.options.scales.y.suggestedMax =  thr*1.25;
+    } else {
+      ds[1].data = []; ds[2].data = [];
+      chart.options.scales.y.suggestedMin = undefined;
+      chart.options.scales.y.suggestedMax = undefined;
+    }
+    ds[3].data = ch.exceedances
+      .filter(e => e.t >= t0 && e.t <= t1)
+      .map(e => ({x:e.t, y:e.v}));
+
+    chart.options.scales.x.min = t0;
+    chart.options.scales.x.max = t1;
+    chart.update("none");
+  }
+  function updateAllCharts(){
+    for(const k of selectedKeys()) updateBand(k);
+  }
+
+  // ---------- Umbrales (UI) ----------
+  function renderThresholdRow(){
+    const row = $("thrRow");
+    row.innerHTML = "";
+    for(const k of selectedKeys()){
+      const ch = state.channels[k];
+      const item = document.createElement("div");
+      item.className = "thr-item";
+      item.innerHTML = `
+        <span class="dot" style="background:${CH_COLORS[k]}"></span>
+        <strong>${ch.label}</strong>
+        <input type="number" id="thr-${k}" step="any" placeholder="—"
+               value="${ch.threshold != null ? ch.threshold : ""}">
+        <button id="thr-set-${k}">Fijar</button>
+        <button id="thr-reset-${k}">×</button>`;
+      row.appendChild(item);
+      item.querySelector("#thr-set-"+k).onclick = ()=>{
+        const v = parseFloat(item.querySelector("#thr-"+k).value);
+        if(!isNaN(v) && v > 0) setThreshold(k, v);
+      };
+      item.querySelector("#thr-reset-"+k).onclick = ()=>setThreshold(k, null);
+    }
+  }
+
+  // ---------- Tiempo ----------
+  function updateNow(){
+    const sk = $("seek");
+    sk.value = state.currentTime;
+    if(!state.accel && !state.gyro){ $("nowInfo").textContent = "—"; return; }
+    let txt = `${fmtTime(state.currentTime)} / ${fmtTime(state.maxTime)}`;
+    if(state.utc0 != null) txt += " · " + new Date(state.utc0 + state.currentTime*1000).toLocaleTimeString("es-ES");
+    const G = state.gnss;
+    if(G && G.vms){
+      let i = lowerBound(G.t, state.currentTime);
+      if(i > 0 && (i >= G.t.length || Math.abs(G.t[i-1]-state.currentTime) < Math.abs(G.t[i]-state.currentTime))) i--;
+      const v = G.vms[i];
+      if(isFinite(v) && Math.abs(G.t[i]-state.currentTime) < 5) txt += " · " + (v*3.6).toFixed(0) + " km/h";
+    }
+    $("nowInfo").textContent = txt;
+  }
+
+  // ---------- Tabla ----------
+  function renderEventList(){
+    const body = $("evBody");
+    body.innerHTML = "";
+
+    const order = CH_ORDER;
+    const rows = [];
+    for(const key of order){
+      const ch = state.channels[key];
+      if(!ch.selected || ch.threshold == null || !ch.exceedances.length) continue;
+      for(const e of ch.exceedances){
+        let vel = NaN, lat = NaN, lon = NaN;
+        const G = state.gnss;
+        if(G && G.t && G.t.length){
+          let i = lowerBound(G.t, e.t);
+          if(i >= G.t.length) i = G.t.length-1;
+          if(i > 0 && Math.abs(G.t[i-1]-e.t) <= Math.abs(G.t[i]-e.t)) i--;
+          if(Math.abs(G.t[i]-e.t) <= 5){
+            if(G.vms && Number.isFinite(G.vms[i])) vel = G.vms[i]*3.6;
+            if(G.lat && Number.isFinite(G.lat[i])) lat = G.lat[i];
+            if(G.lon && Number.isFinite(G.lon[i])) lon = G.lon[i];
+          }
+        }
+        const utc = state.utc0 != null ? state.utc0 + e.t*1000 : NaN;
+        rows.push({t:e.t, v:e.v, threshold:ch.threshold, key, label:ch.label, unit:ch.unit,
+                   vel, lat, lon, utc});
+      }
+    }
+
+    if(state.sortKey){
+      const sk = state.sortKey, dir = state.sortDir;
+      const orderIdx = k => order.indexOf(k);
+      rows.sort((a,b)=>{
+        let va, vb;
+        switch(sk){
+          case "t":         va = a.t;         vb = b.t;         break;
+          case "hora":      va = a.utc;       vb = b.utc;       break;
+          case "label":     va = a.label;     vb = b.label;     break;
+          case "v":         va = a.v;         vb = b.v;         break;
+          case "threshold": va = a.threshold; vb = b.threshold; break;
+          case "vel":       va = a.vel;       vb = b.vel;       break;
+          case "lat":       va = a.lat;       vb = b.lat;       break;
+          case "lon":       va = a.lon;       vb = b.lon;       break;
+          default:          va = a.t;         vb = b.t;
+        }
+        const aNaN = typeof va === "number" && !Number.isFinite(va);
+        const bNaN = typeof vb === "number" && !Number.isFinite(vb);
+        if(aNaN && bNaN) return orderIdx(a.key)-orderIdx(b.key);
+        if(aNaN) return 1;
+        if(bNaN) return -1;
+        if(typeof va === "string"){
+          const c = va.localeCompare(vb, "es");
+          return c !== 0 ? c*dir : orderIdx(a.key)-orderIdx(b.key);
+        }
+        return (va - vb)*dir || orderIdx(a.key)-orderIdx(b.key);
+      });
+    } else {
+      rows.sort((a,b)=>a.t-b.t || order.indexOf(a.key)-order.indexOf(b.key));
+    }
+
+    $("eventsPanel").style.display = rows.length ? "" : "none";
+    $("evCount").textContent = `(${rows.length})`;
+    const f = (v,d)=>Number.isFinite(v) ? v.toFixed(d) : "—";
+
+    rows.forEach(e=>{
+      const hora = Number.isFinite(e.utc) ? new Date(e.utc).toLocaleTimeString("es-ES") : "—";
+      const tr = document.createElement("tr");
+      tr.className = "clk";
+      tr.dataset.eventKey = e.key;
+      tr.dataset.eventTime = String(e.t);
+      tr.innerHTML = `<td>${fmtTime(e.t)}</td><td>${hora}</td><td>${e.label}</td><td>${f(e.v,3)} ${e.unit}</td><td>${f(e.threshold,3)}</td><td>${f(e.vel,0)}</td><td>${f(e.lat,5)}</td><td>${f(e.lon,5)}</td>`;
+      const selected = state.selectedEvent &&
+        state.selectedEvent.key === e.key &&
+        Math.abs(state.selectedEvent.t-e.t) < 1e-9;
+      tr.classList.toggle("selected", !!selected);
+      tr.setAttribute("aria-selected", selected ? "true" : "false");
+      tr.onclick = ()=>focusEvent(e);
+      body.appendChild(tr);
+    });
+
+    document.querySelectorAll("table.ev th.sortable").forEach(th=>{
+      const ind = th.querySelector(".sort-ind");
+      if(!ind) return;
+      if(state.sortKey === th.dataset.sort){
+        ind.textContent = state.sortDir === 1 ? "▲" : "▼";
+      } else {
+        ind.textContent = "";
+      }
+    });
+  }
+
+  function focusEvent(e){
+    stopPlayback();
+    state.selectedEvent = {t:e.t, v:e.v, key:e.key};
+    const maxStart = Math.max(0, state.maxTime-state.window);
+    state.viewStart = Math.max(0, Math.min(maxStart, e.t-state.window/2));
+    state.currentTime = e.t;
+    state.lastCheckedTime = e.t;
+    updateAllCharts(); updateNow();
+    document.querySelectorAll("#evBody tr").forEach(tr=>{
+      const same = tr.dataset.eventKey === e.key && Math.abs(Number(tr.dataset.eventTime)-e.t)<1e-9;
+      tr.classList.toggle("selected", same);
+      if(same) tr.scrollIntoView({block:"nearest", behavior:"smooth"});
+    });
+
+    groupPanel.classList.add("event-focused");
+    clearAlarmHighlight();
+    const targetBand = document.getElementById("band-"+e.key);
+    if(targetBand) targetBand.classList.add("band-alarm");
+
+    requestAnimationFrame(()=>groupPanel.scrollIntoView({block:"center", behavior:"smooth"}));
+  }
+
+  // ---------- Sonido ----------
+  function ensureAudio(){
+    if(!state.audioCtx){ const AC = window.AudioContext || window.webkitAudioContext; if(AC) state.audioCtx = new AC(); }
+    if(state.audioCtx && state.audioCtx.state === "suspended") state.audioCtx.resume();
+  }
+  function beep(){
+    if(!state.soundOn) return;
+    ensureAudio();
+    const ctx = state.audioCtx; if(!ctx) return;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = "square"; osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.35);
+  }
+  function checkExceedances(){
+    const t1 = state.currentTime, t0 = state.lastCheckedTime;
+    let fire = false, fireKey = null;
+    for(const key in state.channels){
+      const ch = state.channels[key];
+      if(!ch.selected || ch.threshold == null || !ch.exceedances.length) continue;
+      let lo = 0, hi = ch.exceedances.length;
+      while(lo < hi){ const m = (lo+hi)>>1; if(ch.exceedances[m].t <= t0) lo = m+1; else hi = m; }
+      if(lo < ch.exceedances.length && ch.exceedances[lo].t <= t1){ fire = true; fireKey = key; }
+    }
+    if(fire){
+      beep();
+      clearAlarmHighlight();
+      const b = document.getElementById("band-"+fireKey);
+      if(b) b.classList.add("band-alarm");
+    }
+    state.lastCheckedTime = t1;
+  }
+
+  // ---------- Reproducción ----------
+  let rafId = null, lastFrame = null;
+  function seek(t){
+    state.currentTime = Math.min(Math.max(t, 0), state.maxTime);
+    state.viewStart = null;
+    state.selectedEvent = null;
+    groupPanel.classList.remove("event-focused");
+    clearAlarmHighlight();
+    state.lastCheckedTime = state.currentTime;
+    document.querySelectorAll("#evBody tr.selected").forEach(tr=>tr.classList.remove("selected"));
+    updateAllCharts(); updateNow();
+  }
+  function animate(ts){
+    if(!state.playing) return;
+    if(lastFrame == null) lastFrame = ts;
+    const dt = Math.min((ts - lastFrame)/1000, 0.25);
+    lastFrame = ts;
+    state.currentTime += dt * state.speed;
+    if(state.currentTime >= state.maxTime){
+      state.currentTime = state.maxTime;
+      stopPlayback(); updateAllCharts(); updateNow();
+      return;
+    }
+    checkExceedances();
+    updateAllCharts(); updateNow();
+    rafId = requestAnimationFrame(animate);
+  }
+  function startPlayback(){
+    if(state.maxTime <= 0 || state.playing) return;
+    state.selectedEvent = null; state.viewStart = null;
+    groupPanel.classList.remove("event-focused");
+    clearAlarmHighlight();
+    document.querySelectorAll("#evBody tr.selected").forEach(tr=>tr.classList.remove("selected"));
+    ensureAudio();
+    if(state.currentTime >= state.maxTime) seek(0);
+    state.playing = true; lastFrame = null;
+    $("btnPlay").classList.add("playing");
+    rafId = requestAnimationFrame(animate);
+  }
+  function stopPlayback(){
+    state.playing = false;
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    $("btnPlay").classList.remove("playing");
+  }
+
+  // ---------- UI ----------
+  document.querySelectorAll(".ch-btn").forEach(btn=>btn.addEventListener("click", ()=>toggleChannel(btn.dataset.ch)));
+
+  $("btnDemo").addEventListener("click", ()=>{
+    stopPlayback();
+    raw.acc = raw.gyro = raw.gnss = raw.meta = raw.receipt = null;
+    const d = generateDemo();
+    raw.acc = d.acc; raw.gyro = d.gyro; raw.ev = d.ev;
+    finalize();
+  });
+  $("btnGenDemo").addEventListener("click", generateDemoFiles);
+
+  for(const id of ["fileAcc","fileGiro","fileEvent","fileGnss"]){
+    $(id).addEventListener("change", e=>{ if(e.target.files.length) loadFiles(e.target.files, false); e.target.value = ""; });
+  }
+  function wireDrop(zoneId, inputId){
+    const z = $(zoneId), inp = $(inputId);
+    // No usamos inp.click() desde el contenedor: Chrome Android puede bloquearlo.
+    // El input transparente ocupa toda la zona y recibe directamente la pulsación.
+    inp.addEventListener("change", e=>{ if(e.target.files.length) loadFiles(e.target.files, true); e.target.value = ""; });
+    ["dragover","dragenter"].forEach(ev=>z.addEventListener(ev, e=>{ e.preventDefault(); z.classList.add("over"); }));
+    ["dragleave","drop"].forEach(ev=>z.addEventListener(ev, e=>{ e.preventDefault(); z.classList.remove("over"); }));
+    z.addEventListener("drop", e=>{ if(e.dataTransfer.files.length) loadFiles(e.dataTransfer.files, true); });
+  }
+  wireDrop("dropZip", "fileZip");
+  wireDrop("dropMulti", "fileMulti");
+
+  $("chkGravity").addEventListener("change", e=>{
+    state.removeGravity = e.target.checked;
+    buildChannels(); updateAllCharts(); renderEventList();
+  });
+  $("chkEvLines").addEventListener("change", e=>{ state.showEvLines = e.target.checked; updateAllCharts(); });
+  $("inpWindow").addEventListener("change", e=>{
+    state.window = Math.max(1, parseFloat(e.target.value) || 10);
+    if(state.selectedEvent){
+      const maxStart = Math.max(0, state.maxTime-state.window);
+      state.viewStart = Math.max(0, Math.min(maxStart, state.selectedEvent.t-state.window/2));
+    }
+    updateAllCharts();
+  });
+  document.querySelectorAll(".speed-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      state.speed = parseFloat(btn.dataset.speed);
+      document.querySelectorAll(".speed-btn").forEach(b=>b.classList.remove("on"));
+      btn.classList.add("on");
+    });
+  });
+  document.querySelector('.speed-btn[data-speed="1"]').classList.add("on");
+
+  $("btnPlay").addEventListener("click", startPlayback);
+  $("btnStop").addEventListener("click", stopPlayback);
+  $("seek").addEventListener("input", e=>seek(parseFloat(e.target.value)));
+
+  $("chkSound").addEventListener("change", e=>{
+    state.soundOn = e.target.checked;
+    const el = $("alarmStatus");
+    if(state.soundOn){ ensureAudio(); el.textContent = "ALARMA ACTIVA"; el.className = "alarm-on"; }
+    else { el.textContent = "SIN ALARMA"; el.className = "alarm-off"; }
+  });
+
+  document.querySelectorAll("table.ev th.sortable").forEach(th=>{
+    th.addEventListener("click", ()=>{
+      const key = th.dataset.sort;
+      if(state.sortKey === key){
+        state.sortDir = -state.sortDir;
+      } else {
+        state.sortKey = key;
+        state.sortDir = 1;
+      }
+      renderEventList();
+    });
+  });
+}
+
+(function boot(){
+  let tries = 0;
+  (function wait(){
+    if(typeof Chart !== "undefined" && typeof JSZip !== "undefined"){ initApp(); return; }
+    if(++tries > 100){
+      const el = document.getElementById("dataStatus");
+      el.textContent = "No se pudieron cargar Chart.js / JSZip (¿sin conexión a internet?). Comprueba la red y recarga la página.";
+      el.className = "status err";
+      return;
+    }
+    setTimeout(wait, 100);
+  })();
+})();
+</script>
+</body>
+</html>
